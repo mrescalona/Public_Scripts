@@ -1,0 +1,181 @@
+### We performed mapping with paleomix and the follwoing parameters at the .yaml
+# Commented lines and not shown parameters
+
+# Settings for trimming of reads, see AdapterRemoval man-page
+  AdapterRemoval:
+     --mm: 3
+     --minlength: 25
+     --collapse: yes
+     --trimns: yes
+     --trimqualities: yes
+
+# Settings for aligners supported by the pipeline
+  Aligners:
+    # Choice of aligner software to use, either "BWA" or "Bowtie2"
+    Program: BWA
+
+    # Settings for mappings performed using BWA
+    BWA:
+      Algorithm: mem
+      MinQuality: 0
+      # Filter reads that did not map to the reference sequence
+      FilterUnmappedReads: yes
+      UseSeed: yes
+
+ # Set to 'yes' exclude a type of trimmed reads from alignment / analysis;
+  # possible read-types reflect the output of AdapterRemoval
+  ExcludeReads:
+    # Exclude single-end reads (yes / no)?
+    Single: no
+    # Exclude non-collapsed paired-end reads (yes / no)?
+    Paired: no
+    # Exclude paired-end reads for which the mate was discarded (yes / no)?
+    Singleton: no
+    # Exclude overlapping paired-ended reads collapsed into a single sequence
+    # by AdapterRemoval (yes / no)?
+    Collapsed: no
+    # Like 'Collapsed', but only for collapsed reads truncated due to the
+    # presence of ambiguous or low quality bases at read termini (yes / no).
+    CollapsedTruncated: no
+
+  # Optional steps to perform during processing.
+  Features:
+    # If set to 'filter', PCR duplicates are removed from the output files; if set to
+    # 'mark', PCR duplicates are flagged with bit 0x400, and not removed from the
+    # output files; if set to 'no', the reads are assumed to not have been amplified.
+    PCRDuplicates: filter
+    # Set to 'no' to disable mapDamage; set to 'plots' to build basic mapDamage plots;
+    # set to 'model' to build plots and post-mortem damage models; and set to 'rescale'
+    # to build plots, models, and BAMs with rescaled quality scores. All analyses are
+    # carried out per library.
+    mapDamage: no
+    # Generate coverage information for the final BAM and for each 'RegionsOfInterest'
+    # specified in 'Prefixes' (yes / no).
+    Coverage: yes
+    # Generate histograms of number of sites with a given read-depth, from 0 to 200,
+    # for each BAM and for each 'RegionsOfInterest' specified in 'Prefixes' (yes / no).
+    Depths: yes
+    # Generate summary table for each target (yes / no)
+    Summary: yes
+
+
+#############################
+# After mapping with Paleomix, BAM files were processed with GATK to make gVCFs for each sample and posterior "merging" into a single VCF
+#############################
+
+#For each sample, the basic workflow was as follow:
+
+~/software/gatk-4.6.2.0/gatk HaplotypeCaller -I input.bam -O output.g.vcf.gz -R reference.fasta --tmp-dir ./gatk_temp -ERC GVCF --native-pair-hmm-threads 8
+
+~/software/gatk-4.6.2.0/gatk GenomicsDBImport --genomicsdb-workspace-path /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/DB \
+    --batch-size 10 --sample-name-map DB_mapfile.txt --intervals /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/Tursiops_truncatus.intervals \
+    --tmp-dir /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/temp
+
+~/software/gatk-4.6.2.0/gatk GenotypeGVCFs --output /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/tursiops_raw_population.vcf.gz \
+    --variant gendb:///media/labgenoma5/slbonatto_20b/tursiops/02_vcf/DB --reference /media/labgenoma5/slbonatto_20b/references/tursiops/ref_with_mito/GCA_011762595.2_mTurTru1.mat.Y_genomic.fasta \
+    --include-non-variant-sites false --sample-ploidy 2 \
+    --standard-min-confidence-threshold-for-calling 30.0
+
+
+### Update DB
+# 2 samples were sequenced later in 2026
+# Instead of recreating the DB, we updated the DB and only recreated the final VCF
+# Updated DB used the following command
+
+~/software/gatk-4.6.2.0/gatk GenomicsDBImport -genomicsdb-update-workspace-path /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/DB \
+    --batch-size 10 --sample-name-map DB_mapfile_2026.txt --intervals /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/Tursiops_truncatus.intervals \
+    --tmp-dir /media/labgenoma5/slbonatto_20b/tursiops/02_vcf/temp
+
+####################################################
+# Parallel example to run multiple samples together
+####################################################
+
+parallel -j 2 --progress --joblog gatk_jobs.log \
+"mkdir -p /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/gatk_temp/{#}; \
+~/workspace/software/gatk-4.6.2.0/gatk HaplotypeCaller \
+-I {} \
+-O /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/{/}.g.vcf.gz \
+-R /media/labgenoma5/slbonatto_20b/references/tursiops/ref_with_mito/GCA_011762595.2_mTurTru1.mat.Y_genomic.fasta \
+--tmp-dir /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/gatk_temp/{#} \
+-ERC GVCF \
+--native-pair-hmm-threads 8" ::: /media/labgenoma5/slbonatto_20b/tursiops/00_paleomix/*.bam
+
+#########################################################
+# For map file and intervals, we used these bash commands
+#########################################################
+
+for f in *.g.vcf.gz; do
+    sample=$(basename "$f" .bam.g.vcf.gz)
+    sample=${sample/.Ttrunc/}  # remove the species suffix if present
+    echo -e "${sample}\t${PWD}/${f}"
+done > DB_mapfile.txt
+
+grep ">" ../../references/megaptera/Megaptera_novaeangliae.fasta | sed 's/>//g' | awk '{print $1}' > Megaptera_novaeangliae.intervals
+
+# Mapfile
+Tg_Arg_10       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Arg_10.Ttrunc.bam.g.vcf.gz
+Tg_Arg_3        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Arg_3.Ttrunc.bam.g.vcf.gz
+Tg_Arg_4        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Arg_4.Ttrunc.bam.g.vcf.gz
+Tg_Arg_5        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Arg_5.Ttrunc.bam.g.vcf.gz
+Tg_Arg_8        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Arg_8.Ttrunc.bam.g.vcf.gz
+Tg_Arg_9        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Arg_9.Ttrunc.bam.g.vcf.gz
+Tg_H    /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_H.Ttrunc.bam.g.vcf.gz
+Tg_LA_1 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_LA_1.Ttrunc.bam.g.vcf.gz
+Tg_LA_2 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_LA_2.Ttrunc.bam.g.vcf.gz
+Tg_LA_3 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_LA_3.Ttrunc.bam.g.vcf.gz
+Tg_LA_4 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_LA_4.Ttrunc.bam.g.vcf.gz
+Tg_LA_5 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_LA_5.Ttrunc.bam.g.vcf.gz
+Tg_NPL_102      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_NPL_102.Ttrunc.bam.g.vcf.gz
+Tg_NPL_275      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_NPL_275.Ttrunc.bam.g.vcf.gz
+Tg_NPL_46       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_NPL_46.Ttrunc.bam.g.vcf.gz
+Tg_NPL_82       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_NPL_82.Ttrunc.bam.g.vcf.gz
+Tg_PLE_125      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_125.Ttrunc.bam.g.vcf.gz
+Tg_PLE_129      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_129.Ttrunc.bam.g.vcf.gz
+Tg_PLE_137      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_137.Ttrunc.bam.g.vcf.gz
+Tg_PLE_187      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_187.Ttrunc.bam.g.vcf.gz
+Tg_PLE_195      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_195.Ttrunc.bam.g.vcf.gz
+Tg_PLE_211      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_211.Ttrunc.bam.g.vcf.gz
+Tg_PLE_212      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_212.Ttrunc.bam.g.vcf.gz
+Tg_PLE_215      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_PLE_215.Ttrunc.bam.g.vcf.gz
+Tg_RSN_1        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_RSN_1.Ttrunc.bam.g.vcf.gz
+Tg_RSN_2        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_RSN_2.Ttrunc.bam.g.vcf.gz
+Tg_RSN_3        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_RSN_3.Ttrunc.bam.g.vcf.gz
+Tg_SCN_1        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_SCN_1.Ttrunc.bam.g.vcf.gz
+Tg_SCN_2        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_SCN_2.Ttrunc.bam.g.vcf.gz
+Tg_SCN_3        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_SCN_3.Ttrunc.bam.g.vcf.gz
+Tg_Uru_146      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Uru_146.Ttrunc.bam.g.vcf.gz
+Tg_Uru_197      /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_Uru_197.Ttrunc.bam.g.vcf.gz
+Tt_H    /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_H.Ttrunc.bam.g.vcf.gz
+Tt_RSS_1        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_RSS_1.Ttrunc.bam.g.vcf.gz
+Tt_RSS_2        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_RSS_2.Ttrunc.bam.g.vcf.gz
+Tt_SC_113       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_113.Ttrunc.bam.g.vcf.gz
+Tt_SC_114       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_114.Ttrunc.bam.g.vcf.gz
+Tt_SC_270       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_270.Ttrunc.bam.g.vcf.gz
+Tt_SC_31        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_31.Ttrunc.bam.g.vcf.gz
+Tt_SC_32        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_32.Ttrunc.bam.g.vcf.gz
+Tt_SC_33        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_33.Ttrunc.bam.g.vcf.gz
+Tt_SC_34        /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_34.Ttrunc.bam.g.vcf.gz
+Tt_SC_525       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_525.Ttrunc.bam.g.vcf.gz
+Tt_SC_563       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_563.Ttrunc.bam.g.vcf.gz
+Tt_SC_5 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_5.Ttrunc.bam.g.vcf.gz
+Tt_SC_6 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_6.Ttrunc.bam.g.vcf.gz
+Tt_SC_7 /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tt_SC_7.Ttrunc.bam.g.vcf.gz
+Tg_N_ArgF       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_N_ArgF.Ttrunc.bam.g.vcf.gz
+Tg_N_Argg       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_N_ArgG.Ttrunc.bam.g.vcf.gz
+
+# Mapfile 2026
+Tg_N_ArgF       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_N_ArgF.Ttrunc.bam.g.vcf.gz
+Tg_N_Argg       /media/labgenoma5/slbonatto_20b/tursiops/01_gvcf/Tg_N_ArgG.Ttrunc.bam.g.vcf.gz
+
+# Intervals (362 scaffolds)
+CM022274.1
+CM022275.1
+CM022276.1
+CM022277.1
+CM022278.1
+CM022279.1
+CM022280.1
+CM022281.1
+CM022282.1
+CM022283.1
+...
