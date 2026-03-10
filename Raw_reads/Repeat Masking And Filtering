@@ -1,6 +1,6 @@
 Repeat regions were identified with RepeatMasker (will add the commands later)
 
-A bed file was created with NON-REPEAT regions (i.e. regions NOT in repetitive regions) IN autossomal chromossomes (i.e. removing sexual chromossomes).
+A bed file was created with NON-REPEAT regions (i.e. regions NOT in repetitive regions) IN autossomal chromosomes (i.e. removing sexual chromosomes).
 This bed file was used along with the samtools to create filtered sam files for posterior analyses with angsd or with bcftools to remove repeat regions inside the final GATK vcf file.
 
 Script for samtools is available at Raw_reads/samtools_filt.sh
