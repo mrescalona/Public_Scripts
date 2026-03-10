@@ -8,10 +8,12 @@ plink --bfile tursiops_biallelic_snps_pca --distance square 1-ibs --out tursiops
 # Commands to go from VCF to Admixture, using PLINK as intermediate
 
 plink --vcf ../02_vcf/tursiops_biallelic_snps.vcf.gz --double-id --allow-extra-chr --make-bed --out tursiops_biallelic_snps
-plink --bfile tursiops_biallelic_snps --geno 0.1 --mind 0.1 --maf 0.05 --indep-pairwise 50 5 0.1 --allow-extra-chr --double-id --out tursiops_biallelic_snps_pruned
-plink --bfile tursiops_biallelic_snps --extract tursiops_biallelic_snps_pruned.prune.in --make-bed --out tursiops_biallelic_snps_final --allow-extra-chr --double-id
 
-awk '{$1="0";print $0}' tursiops_biallelic_snps_final.bim > tursiops_biallelic_snps_final.bim.tmp
-mv tursiops_biallelic_snps_final.bim.tmp tursiops_biallelic_snps_final.bim
+plink   --bfile tursiops_biallelic_snps   --set-missing-var-ids @:#:\$1:\$2   --make-bed   --allow-extra-chr --double-id   --out tursiops_biallelic_snps_IDs
+plink   --bfile tursiops_biallelic_snps_IDs   --geno 0.1 --mind 0.1 --maf 0.05   --indep-pairwise 50 5 0.1   --allow-extra-chr --double-id   --out tursiops_pruned
+plink   --bfile tursiops_biallelic_snps_IDs   --extract tursiops_pruned.prune.in   --make-bed   --allow-extra-chr --double-id   --out tursiops_admixture
 
-for k in $(seq 1 10); do admixture --cv tursiops_biallelic_snps_final.bed $k > log${k}.out ; done
+awk '{$1="0";print $0}' tursiops_admixture.bim > tursiops_admixture.bim.tmp
+mv tursiops_admixture.bim.tmp tursiops_admixture.bim
+
+for k in $(seq 1 10); do admixture --cv tursiops_admixture.bed $k > log${k}.out ; done
