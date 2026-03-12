@@ -1,0 +1,7 @@
+# bash command to concatenate phylip files created with windows_assembler.py for bpp
+
+find combined_loci -name "*.phy" | sort | while read f; do
+    cat "$f"
+    echo
+done > combined_loci/bpp_sequences.txt
+
